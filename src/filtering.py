@@ -1,35 +1,59 @@
 import numpy as np
 
-def kalman_filter(F, H, Q, R, z, x_init, P_init):
 
-    num_meas = z.shape[1]
-    n = x_init.shape[0]
-    m = z.shape[0]
+class KalmanFilter():
 
-    x_est = np.zeros((n, num_meas + 1))
-    x_pred = np.zeros((n, num_meas))
-    P_est = np.zeros((n, n, num_meas + 1))
-    P_pred = np.zeros((n, n, num_meas))
-    K = np.zeros((n, m, num_meas))
+    def __init__(self, F, H, Q, R, G=None):
 
-    x_est[:, 0] = x_init
-    P_est[:, :, 0] = P_init
+        self.n = F.shape[1]
+        self.m = H.shape[0]
 
-    z = z.T
+        self.F = F
+        self.H = H
+        self.Q = Q
+        self.R = R
+        self.G = 0 if G is None else G
 
-    for k in range(0, num_meas):
-        
-        # Prediction
-        x_pred[:, k] = F.dot(x_est[:, k])
-        P_pred[:, :, k] = F.dot(P_est[:, :, k].dot(F.T)) + Q
+    def predict(self, x_est, P_est, u=0):
 
-        res = z[k] - H.dot(x_pred[:, k])
-        res_cov = H.dot(P_pred[:, :, k].dot(H.T)) + R
+        x_pred = self.F.dot(x_est) + np.dot(self.G, u)
+        P_pred = self.F.dot(P_est).dot(self.F.T) + self.Q
 
-        # Update
-        K[:, :, k] = P_pred[:, :, k].dot(H.T.dot(np.linalg.inv(res_cov)))
+        return x_pred, P_pred
 
-        x_est[:, k+1] = x_pred[:, k] + K[:, :, k].dot(res)
-        P_est[:, :, k+1] = (np.eye(n) - K[:, :, k].dot(H)).dot(P_pred[:, :, k])
+    def update(self, z, x_pred, P_pred):
 
-    return x_est, P_est, K, x_pred, P_pred
+        res = z - self.H.dot(x_pred)
+        res_cov = self.H.dot(P_pred).dot(self.H.T) + self.R
+
+        gain = P_pred.dot(self.H.T).dot(np.linalg.inv(res_cov))
+
+        x_est = x_pred + gain.dot(res)
+        P_est = (np.eye(self.n) - gain.dot(self.H)).dot(P_pred)
+
+        return x_est, P_est, gain
+
+    def step(self, z, x_est, P_est):
+
+        x_pred, P_pred = self.predict(x_est, P_est)
+        x_est, P_est, gain = self.update(z, x_pred, P_pred)
+
+        return x_est, P_est, gain
+
+    def estimate(self, meas, x_init, P_init):
+
+        steps = meas.shape[1]
+
+        x_est = np.zeros((self.n, steps))
+        P_est = np.zeros((self.n, self.n, steps))
+        gains = np.zeros((self.n, self.m, steps))
+
+        x = x_init
+        P = P_init
+
+        for k in range(0, steps):
+            z = meas[:, k]
+            x, P, gain = self.step(z, x, P)
+            x_est[:, k], P_est[:, :, k], gains[:, :, k] = x, P, gain
+
+        return x_est, P_est, gains
