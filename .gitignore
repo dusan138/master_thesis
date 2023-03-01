@@ -2,3 +2,4 @@
 .env/
 __pycache__/
 *.mat
+old_code/
