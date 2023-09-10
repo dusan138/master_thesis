@@ -40,8 +40,7 @@ def KF_update(z, x_pred, P_pred, H, R):
 #                              M-robust estimation
 # ------------------------------------------------------------------------------
 
-def MRobust_update(
-        z, x_pred, x_est, P_pred, H, R, delta=1.5, robust_divisor=0.6745):
+def MRobust_update(z, x_pred, x_est, P_pred, H, R, delta=1.5):
     """
     One step update for M robust filter.
 
@@ -54,7 +53,6 @@ def MRobust_update(
     n = x_pred.shape[0]
     m = z.shape[0]
 
-    res = z - np.dot(H, x_pred)
     res_cov = np.dot(H, np.dot(P_pred, H.T)) + R
 
     if type(res_cov) == np.float64:
@@ -72,7 +70,7 @@ def MRobust_update(
     S = np.linalg.cholesky(temp_mat)
 
     # Calculate the X matrix
-    temp_mat = np.concatenate([np.eye(m), H])
+    temp_mat = np.concatenate([np.eye(n), H])
     X = np.dot(np.linalg.inv(S), temp_mat)
 
     # Calculate the Y matrix
@@ -83,11 +81,13 @@ def MRobust_update(
     W = np.eye(m + n)
 
     for k in range(0, m + n):
-        W[k, k] = psi(Y[:, k] - np.dot(X[:, k], x_est))
+        arg = Y[k] - np.dot(X[k, :], x_est)
+
+        W[k, k] = psi(arg)/arg if arg != 0 else 1
 
     # Update the estimate
     x_est = np.dot(
-        np.linalg.inv(np.dot(X.T, np.dot(W, X))),
+        np.linalg.pinv(np.dot(X.T, np.dot(W, X))),
         np.dot(X.T, np.dot(W, Y))
     )
     P_est = np.dot((np.eye(n) - np.dot(gain, H)), P_pred)
@@ -117,7 +117,9 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
         W = np.eye(N)
 
         for k in range(N):
-            W[k, k] = psi((r[k] - r_mean)/d)
+            arg = (r[k] - r_mean)/d
+
+            W[k, k] = psi(arg) if arg !=0 else 1
     else:
         # None means we assume zero mean noise
         r_mean = 0
@@ -138,7 +140,7 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
 
     return r_mean, C_r
 
-def process_noise_statistics(z, q_mean, x_ests, F, G, P, P_prev, N=25):
+def process_noise_statistics(q_mean, x_ests, F, G, P, P_prev, N=25):
     """
     Calculate mean and covariance of w noise.
 
@@ -237,7 +239,7 @@ def KF_noise_step(
     q_mean_new = np.zeros(Q.shape[0])
     for dim in range(Q.shape[0]):
         q_mean_new[dim], Q[dim, dim] = \
-            process_noise_statistics(z, q_mean, x_ests, F, G, P_est, P_est_prev)
+            process_noise_statistics(q_mean, x_ests, F, G, P_est, P_est_prev)
 
     return x_est, P_est, gain, r_mean_new, R, q_mean_new, Q
 
@@ -248,7 +250,7 @@ def MRobust_step(z, x_est, P_est, F, H, G, Q, R, u=0):
     
     x_pred, P_pred = KF_predict(x_est, P_est, F, G, Q, u)
 
-    x_est, P_est, gain = MRobust_update(z, x_pred, x_est, P_pred, R)
+    x_est, P_est, gain = MRobust_update(z, x_pred, x_est, P_pred, H, R)
 
     return x_est, P_est, gain
 
@@ -262,7 +264,7 @@ def MRobust_noise_step(
 
     x_pred, P_pred = KF_predict(x_est, P_est, F, G, Q, u)
 
-    x_est, P_est, gain = MRobust_update(z, x_pred, x_est, P_pred, R)
+    x_est, P_est, gain = MRobust_update(z, x_pred, x_est, P_pred, H, R)
 
     # Go through dimensions of x and assume that they're independent! 
     # Estimate the noise characteristics
@@ -277,6 +279,6 @@ def MRobust_noise_step(
     q_mean_new = np.zeros(Q.shape[0])
     for dim in range(Q.shape[0]):
         q_mean_new[dim], Q[dim, dim] = \
-            process_noise_statistics(z, q_mean, x_ests, F, G, P_est, P_est_prev)
+            process_noise_statistics(q_mean, x_ests, F, G, P_est, P_est_prev)
 
     return x_est, P_est, gain, r_mean_new, R, q_mean_new, Q

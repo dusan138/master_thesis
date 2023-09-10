@@ -58,7 +58,7 @@ tailed_noise = (1 - eps)*np.random.normal(loc=0, scale=sigma_R, size=MAXSTEPS) \
 #                                   Filtering
 # ------------------------------------------------------------------------------
 P_init = 10*np.eye(3)
-x_init = np.zeros(3)
+x_init = np.zeros(3) + 0.1
 
 z_n = x[0, :, :] + normal_noise
 z_t = x[0, :, :] + tailed_noise
@@ -124,7 +124,7 @@ x = x_init
 P = P_init
 
 for k in range(0, MAXSTEPS):
-    x, P, gain = MRobust_step(z_t[k], x, P, F, H, G, Q, sigma_R)
+    x, P, gain = MRobust_step(z_t[:, k], x, P, F, H, G, Q, R)
     x_mr_t[:, k], P_mr_t[:, :, k], K_mr_t[:, :, k] = x, P, gain
 
 cee_mr_n = np.cumsum(
@@ -180,19 +180,14 @@ fig, ax = plt.subplots(2, 1, figsize=(12, 12))
 ax[0].plot(T*np.arange(0, MAXSTEPS), traj[0, 0, :], label="True position", ls='-.')
 ax[0].plot(T*np.arange(0, MAXSTEPS), traj[0, 0, :] + normal_noise, label="Measurement")
 ax[0].plot(T*np.arange(0, MAXSTEPS), x_kf_n[0, :], label="KF estimate")
-# ax[0].plot(T*np.arange(0, MAXSTEPS), x_mr_n[0, :], label="MR estimate")
+ax[0].plot(T*np.arange(0, MAXSTEPS), x_mr_n[0, :], label="MR estimate")
 ax[0].set_title("Normal noise")
 
 ax[1].plot(T*np.arange(0, MAXSTEPS), traj[0, 0, :], label="True position", ls='-.')
 ax[1].plot(T*np.arange(0, MAXSTEPS), traj[0, 0, :] + tailed_noise, label="Measurement")
 ax[1].plot(T*np.arange(0, MAXSTEPS), x_kf_t[0, :], label="KF estimate")
-# ax[1].plot(T*np.arange(0, MAXSTEPS), x_mr_n[0, :], label="MR estimate")
+ax[1].plot(T*np.arange(0, MAXSTEPS), x_mr_n[0, :], label="MR estimate")
 ax[1].set_title("Tailed noise")
-
-# ax[2].plot(T*np.arange(0, MAXSTEPS), traj[0, :], label="True position", ls='-.')
-# ax[2].plot(T*np.arange(0, MAXSTEPS), x_kf_n[0, :], label="Estimate (normal noise)")
-# ax[2].plot(T*np.arange(0, MAXSTEPS), x_kf_t[0, :], label="Estimate (tailed noise)")
-# ax[2].set_title("Estimates comparison")
 
 for k in [0, 1]:#, 2]:
     ax[k].set_xlabel("Time [s]")
@@ -204,19 +199,20 @@ fig.tight_layout()
 fig.show()
 
 # ------------------------------------------------------------------------------
-# Plot the KF CEE metrics
-fig = plt.figure(figsize=(12,6))
+# Plot the CEE metrics
 
-plt.plot(T*np.arange(0, MAXSTEPS), cee_kf_n, label="Normal noise")
-plt.plot(T*np.arange(0, MAXSTEPS), cee_kf_t, label="Tailed noise")
-plt.legend()
-plt.ylabel("CEE(k)")
-plt.xlabel("k")
-plt.legend()
+fig, ax = plt.subplots(2, 1, figsize=(12, 12))
 
-fig.suptitle("CEE for different noises")
+ax[0].plot(T*np.arange(0, MAXSTEPS), cee_kf_n, label="Kalman Filter")
+ax[0].plot(T*np.arange(0, MAXSTEPS), cee_mr_n, label="M-Robust Filter")
+ax[0].set_title("Normal noise")
+
+ax[1].plot(T*np.arange(0, MAXSTEPS), cee_kf_t, label="Kalman Filter")
+ax[1].plot(T*np.arange(0, MAXSTEPS), cee_mr_t, label="M-Robust Filter")
+ax[1].set_title("Tailed noise")
+
+fig.suptitle("CEE comparison")
 fig.tight_layout()
 fig.show()
-
 # ==============================================================================
 input()
