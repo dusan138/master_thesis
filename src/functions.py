@@ -50,7 +50,6 @@ def MRobust_update(
 
     # Assume Huber M-estimator
     psi = lambda z: delta*np.sign(z) if np.abs(z) >= delta else z
-    psi_der = lambda z: 0 if np.abs(z) >= delta else 1
 
     n = x_pred.shape[0]
     m = z.shape[0]
@@ -139,16 +138,15 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
 
     return r_mean, C_r
 
-def process_noise_statistics(
-        z, q_mean, x_preds, F, G, P_pred, P_pred_prev, N=25):
+def process_noise_statistics(z, q_mean, x_ests, F, G, P, P_prev, N=25):
     """
     Calculate mean and covariance of w noise.
 
-    x_preds is vector of N + 1 last estimates    
+    x_ests is vector of N + 1 last estimates
     """
 
     # Make sure we at most N samples in x_estimates
-    x_preds = x_preds[-N-1:]
+    x_ests = x_ests[-N-1:]
 
     tmp = np.dot(G.T, G)
     if type(tmp) == np.float64:
@@ -156,43 +154,46 @@ def process_noise_statistics(
 
     # Approximate the noise
     q = np.dot(
-        np.linalg.inv(tmp), 
+        np.linalg.inv(tmp),
         np.dot(
             G.T, 
-            x_preds[1:]-np.dot(F, x_preds[:-1])
+            x_ests[1:]-np.dot(F, x_ests[:-1])
         )
-    )
+    ) # this works, but just to be 100% sure, won't use it
+
+    # q = np.zeros(N)
+    # for k in range(1, N+1):
+    #     q[k] = np.dot(
+    #         np.linalg.inv(tmp), 
+    #         np.dot(G.T, x_ests[k-1] - np.dot(F, x_ests[k]))
+    #     )
 
     q_mean, C_q = noise_statistics(q, q_mean)
 
     w_mean = q_mean
 
-    Q = C_q - \
-        np.dot(
-            np.linalg.inv(tmp), 
-            np.dot(F, np.dot(P_pred_prev, F.T)) - P_pred
-        )
+    Q = C_q - np.dot(np.linalg.inv(tmp), np.dot(F, np.dot(P_prev, F.T)) - P)
 
     return w_mean, Q
 
-def measurement_noise_statistics(z, r_mean, x_preds, H, P_pred, N=25):
+def measurement_noise_statistics(z, r_mean, x_ests, H, P, N=25):
     """
     Calculate mean and covariance of v noise.
 
-    x_preds is vector of N last estimates!
+    x_ests is vector of N last estimates!
     """
 
     # Make sure we at most N samples in x_estimates
-    x_preds = x_preds[-N:]
+    x_ests = x_ests[-N:]
 
     # Approximate the noise
-    r = z - np.dot(H, x_preds)
+    r = z - np.dot(H, x_ests)
 
     r_mean, C_r = noise_statistics(r, r_mean)
 
     v_mean = r_mean
 
-    R = C_r - np.dot(H, np.dot(P_pred, H.T))
+    R = C_r - np.dot(H, np.dot(P, H.T))
 
     return v_mean, R
 
