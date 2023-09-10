@@ -108,7 +108,7 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
     psi = lambda z: delta*np.sign(z) if np.abs(z) >= delta else z
     psi_der = lambda z: 0 if np.abs(z) >= delta else 1
 
-    N = r.shape[0]
+    N = r.shape[1]
 
     d = np.median(np.abs(r - np.median(r))/robust_divisor)
 
@@ -117,9 +117,11 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
         W = np.eye(N)
 
         for k in range(N):
-            arg = (r[k] - r_mean)/d
+            arg = ((r[:, k] - r_mean)/d)[0]
 
-            W[k, k] = psi(arg) if arg !=0 else 1
+            W[k, k] = psi(arg)/arg if arg != 0 else 1
+
+        r_mean = np.sum(np.dot(W, r.T))/np.trace(W)
     else:
         # None means we assume zero mean noise
         r_mean = 0
@@ -128,7 +130,7 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
     cov_div = 0
 
     for k in range(N):
-        arg = (r[k] - r_mean)/d
+        arg = (r[:, k] - r_mean)/d
 
         cov_num += psi(arg)**2
         cov_div += psi_der(arg)
@@ -148,20 +150,21 @@ def process_noise_statistics(q_mean, x_ests, F, G, P, P_prev, N=25):
     """
 
     # Make sure we at most N samples in x_estimates
-    x_ests = x_ests[-N-1:]
+    x_ests = x_ests[:, -N-1:]
 
     tmp = np.dot(G.T, G)
     if type(tmp) == np.float64:
-        tmp = np.ndarray((tmp))
+        tmp = np.array([[tmp]])
 
     # Approximate the noise
     q = np.dot(
-        np.linalg.inv(tmp),
+        np.linalg.inv(tmp).squeeze(),
         np.dot(
             G.T, 
-            x_ests[1:]-np.dot(F, x_ests[:-1])
+            x_ests[:, 1:]-np.dot(F, x_ests[:, :-1])
         )
     ) # this works, but just to be 100% sure, won't use it
+    q = np.expand_dims(q, axis=0)
 
     # q = np.zeros(N)
     # for k in range(1, N+1):
@@ -174,11 +177,11 @@ def process_noise_statistics(q_mean, x_ests, F, G, P, P_prev, N=25):
 
     w_mean = q_mean
 
-    Q = C_q - np.dot(np.linalg.inv(tmp), np.dot(F, np.dot(P_prev, F.T)) - P)
+    # Q = C_q - np.dot(np.linalg.inv(tmp).squeeze(), np.dot(F, np.dot(P_prev, F.T)) - P)
 
-    return w_mean, Q
+    return w_mean.squeeze(), C_q.squeeze()
 
-def measurement_noise_statistics(z, r_mean, x_ests, H, P, N=25):
+def measurement_noise_statistics(z, r_mean, x_ests, H, N=25):
     """
     Calculate mean and covariance of v noise.
 
@@ -186,7 +189,7 @@ def measurement_noise_statistics(z, r_mean, x_ests, H, P, N=25):
     """
 
     # Make sure we at most N samples in x_estimates
-    x_ests = x_ests[-N:]
+    x_ests = x_ests[:, -N:]
 
     # Approximate the noise
     r = z - np.dot(H, x_ests)
@@ -195,9 +198,7 @@ def measurement_noise_statistics(z, r_mean, x_ests, H, P, N=25):
 
     v_mean = r_mean
 
-    R = C_r - np.dot(H, np.dot(P, H.T))
-
-    return v_mean, R
+    return v_mean.squeeze(), C_r.squeeze()
 
 # ==============================================================================
 #                                Filtering steps
@@ -215,33 +216,49 @@ def KF_step(z, x_est, P_est, F, H, G, Q, R, u=0):
     return x_est, P_est, gain
 
 def KF_noise_step(
-        z, x_ests, P_est, P_est_prev, F, H, G, r_mean, q_mean, R, Q, N=25, u=0):
+        z, x_ests, P_est, F, H, G, r_mean, q_mean, R, Q, N=25, u=0):
     """
     Kalman filter with robust noise estimation step
     """
 
+    P_est_prev = P_est
+
     x_est = x_ests[:, -1]
+    meas = z[:, -1]
 
-    x_pred, P_pred = KF_predict(x_est, P_est, Q)
+    x_pred, P_pred = KF_predict(x_est, P_est, F, G, Q)
 
-    x_est, P_est, gain = KF_update(z, x_pred, P_pred, H, R)
+    x_est, P_est, gain = KF_update(meas, x_pred, P_pred, H, R)
 
-    # Go through dimensions of x and assume that they're independent! 
-    # Estimate the noise characteristics
-    # Assume here that all the coordinates in the state vector are independent
-    # => this means that the noise covariances R and Q are diagonal and each of
-    # the paramters can be estimated separately
-    r_mean_new = np.zeros(R.shape[0])
-    for dim in range(R.shape[0]):
-        r_mean_new[dim], R[dim, dim] = \
-            measurement_noise_statistics(z, r_mean, x_ests, H, P_est)
+    if x_ests.shape[1] > 2:
+        # Estimate statistics only if there's enough data for that
 
-    q_mean_new = np.zeros(Q.shape[0])
-    for dim in range(Q.shape[0]):
-        q_mean_new[dim], Q[dim, dim] = \
-            process_noise_statistics(q_mean, x_ests, F, G, P_est, P_est_prev)
+        # Go through dimensions of x and assume that they're independent! 
+        # Estimate the noise characteristics
+        # Assume here that all the coordinates in the state vector are independent
+        # => this means that the noise covariances R and Q are diagonal and each of
+        # the paramters can be estimated separately
+        r_mean_new = np.zeros(R.shape[0])
+        C_r = np.zeros(R.shape)
+        for dim in range(R.shape[0]):
+            r_mean_new[dim], C_r[dim, dim] = \
+                measurement_noise_statistics(z, r_mean[dim], x_ests, H)
 
-    return x_est, P_est, gain, r_mean_new, R, q_mean_new, Q
+        R = C_r - np.dot(H, np.dot(P_est, H.T))
+
+        q_mean_new = np.zeros(Q.shape[0])
+        C_q = np.zeros(Q.shape)
+        for dim in range(Q.shape[0]):
+            q_mean_new[dim], C_q[dim, dim] = \
+                process_noise_statistics(
+                    q_mean[dim], x_ests, F, G, P_est, P_est_prev)
+        
+        Q = C_q
+    else:
+        r_mean_new = r_mean
+        q_mean_new = q_mean
+
+    return x_est, P_est, gain, r_mean_new, q_mean_new, R, Q
 
 def MRobust_step(z, x_est, P_est, F, H, G, Q, R, u=0):
     """

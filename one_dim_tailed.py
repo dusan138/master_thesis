@@ -8,6 +8,7 @@ from src.functions import \
 plt.style.use("seaborn-v0_8-darkgrid")
 
 MAXSTEPS = 100
+N = 25
 
 # ------------------------------------------------------------------------------
 
@@ -99,6 +100,70 @@ cee_kf_t = np.cumsum(
     np.linalg.norm(np.array([x_kf_t[0, :] - traj[0, 0, :]]), axis=0) \
     / np.linalg.norm(traj[0, :])
 )/np.arange(1, MAXSTEPS+1)
+
+# ------------------------------------------------------------------------------
+#                         Kalman with noise estimation
+# ------------------------------------------------------------------------------
+# Normal noise
+x_kfn_n = np.zeros((n, MAXSTEPS))
+P_kfn_n = np.zeros((n, n, MAXSTEPS))
+K_kfn_n = np.zeros((n, m, MAXSTEPS))
+
+R_kfn_n = np.zeros((m, m, MAXSTEPS))
+Q_kfn_n = np.zeros((n, n, MAXSTEPS))
+
+r_kfn_n = np.zeros((n, MAXSTEPS))
+q_kfn_n = np.zeros((m, MAXSTEPS))
+
+x = x_init
+P = P_init
+
+R_e = R
+Q_e = Q
+
+r_mean = np.zeros((n, 1))
+q_mean = np.zeros((m, 1))
+
+for k in range(0, MAXSTEPS):
+    if k < N:
+        x_ests = x_kfn_n[:, :k]
+        x_ests = np.insert(x_ests, 0, x_init, axis=1)
+        z = z_n[:, :k+1]
+    else:
+        x_ests = x_kfn_n[k-N:k]
+        z = z_n[:, k-N:k]
+    
+    P_prev = P
+
+    x, P, gain, r_mean, q_mean, R_e, Q_e = KF_noise_step(
+        z, x_ests, P, F, H, G, r_mean, q_mean, R_e, Q_e
+    )
+    x_kfn_n[:, k], P_kfn_n[:, :, k], K_kfn_n[:, :, k] = x, P, gain
+
+    R_kfn_n[:, :, k], r_kfn_n[:, k] = R_e, r_mean.squeeze()
+    Q_kfn_n[:, :, k], q_kfn_n[:, k] = Q_e, q_mean.squeeze()
+
+# # Tailed noise
+# x_mr_t = np.zeros((n, MAXSTEPS))
+# P_mr_t = np.zeros((n, n, MAXSTEPS))
+# K_mr_t = np.zeros((n, m, MAXSTEPS))
+
+# x = x_init
+# P = P_init
+
+# for k in range(0, MAXSTEPS):
+#     x, P, gain = MRobust_step(z_t[:, k], x, P, F, H, G, Q, R)
+#     x_mr_t[:, k], P_mr_t[:, :, k], K_mr_t[:, :, k] = x, P, gain
+
+# cee_mr_n = np.cumsum(
+#     np.linalg.norm(np.array([x_mr_n[0, :] - traj[0, :]]), axis=0) \
+#     / np.linalg.norm(traj[0, :])
+# )/np.arange(1, MAXSTEPS+1)
+
+# cee_mr_t = np.cumsum(
+#     np.linalg.norm(np.array([x_mr_t[0, :] - traj[0, :]]), axis=0) \
+#     / np.linalg.norm(traj[0, :])
+# )/np.arange(1, MAXSTEPS+1)
 
 # ------------------------------------------------------------------------------
 #                                M-Robust filter
