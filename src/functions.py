@@ -139,22 +139,62 @@ def noise_statistics(r, r_mean=None, delta=1.5, robust_divisor=0.6745):
 
     return r_mean, C_r
 
-def process_noise_statistics():
+def process_noise_statistics(
+        z, q_mean, x_preds, F, G, P_pred, P_pred_prev, N=25):
     """
     Calculate mean and covariance of w noise.
-    """
-    pass
 
-def measurement_noise_statistics(z, x_estimates, H, N=25):
+    x_preds is vector of N + 1 last estimates    
+    """
+
+    # Make sure we at most N samples in x_estimates
+    x_preds = x_preds[-N-1:]
+
+    tmp = np.dot(G.T, G)
+    if type(tmp) == np.float64:
+        tmp = np.ndarray((tmp))
+
+    # Approximate the noise
+    q = np.dot(
+        np.linalg.inv(tmp), 
+        np.dot(
+            G.T, 
+            x_preds[1:]-np.dot(F, x_preds[:-1])
+        )
+    )
+
+    q_mean, C_q = noise_statistics(q, q_mean)
+
+    w_mean = q_mean
+
+    Q = C_q - \
+        np.dot(
+            np.linalg.inv(tmp), 
+            np.dot(F, np.dot(P_pred_prev, F.T)) - P_pred
+        )
+
+    return w_mean, Q
+
+def measurement_noise_statistics(z, r_mean, x_preds, H, P_pred, N=25):
     """
     Calculate mean and covariance of v noise.
 
-    x_estimates is vector of N last estimates!
+    x_preds is vector of N last estimates!
     """
 
-    # Approximate the noise
-    r = z - np.dot(H, x_estimates)
+    # Make sure we at most N samples in x_estimates
+    x_preds = x_preds[-N:]
 
+    # Approximate the noise
+    r = z - np.dot(H, x_preds)
+
+    r_mean, C_r = noise_statistics(r, r_mean)
+
+    v_mean = r_mean
+
+    R = C_r - np.dot(H, np.dot(P_pred, H.T))
+
+    return v_mean, R
 
 # ==============================================================================
 #                                Filtering steps
@@ -167,6 +207,25 @@ def KF_step(z, x_est, P_est, F, H, G, Q, R, u=0):
 
     x_pred, P_pred = KF_predict(x_est, P_est, F, G, Q, u)
 
-    x_est, P_est, gain = KF_update(z, x_pred, P_pred, H, Q)
+    x_est, P_est, gain = KF_update(z, x_pred, P_pred, H, R)
 
     return x_est, P_est, gain
+
+def KF_noise_step():
+
+    pass
+
+def MRobust_step(z, x_est, P_est, F, H, G, Q, R, u=0):
+    """
+    M-robust filter without noise estimation step.
+    """
+    
+    x_pred, P_pred = KF_predict(x_est, P_est, F, G, Q, u)
+
+    x_est, P_est, gain = MRobust_update(z, x_pred, x_est, P_pred, R)
+
+    return x_est, P_est, gain
+
+def MRobust_noise_step():
+
+    pass
