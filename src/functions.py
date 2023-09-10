@@ -212,9 +212,34 @@ def KF_step(z, x_est, P_est, F, H, G, Q, R, u=0):
 
     return x_est, P_est, gain
 
-def KF_noise_step():
+def KF_noise_step(
+        z, x_ests, P_est, P_est_prev, F, H, G, r_mean, q_mean, R, Q, N=25, u=0):
+    """
+    Kalman filter with robust noise estimation step
+    """
 
-    pass
+    x_est = x_ests[:, -1]
+
+    x_pred, P_pred = KF_predict(x_est, P_est, Q)
+
+    x_est, P_est, gain = KF_update(z, x_pred, P_pred, H, R)
+
+    # Go through dimensions of x and assume that they're independent! 
+    # Estimate the noise characteristics
+    # Assume here that all the coordinates in the state vector are independent
+    # => this means that the noise covariances R and Q are diagonal and each of
+    # the paramters can be estimated separately
+    r_mean_new = np.zeros(R.shape[0])
+    for dim in range(R.shape[0]):
+        r_mean_new[dim], R[dim, dim] = \
+            measurement_noise_statistics(z, r_mean, x_ests, H, P_est)
+
+    q_mean_new = np.zeros(Q.shape[0])
+    for dim in range(Q.shape[0]):
+        q_mean_new[dim], Q[dim, dim] = \
+            process_noise_statistics(z, q_mean, x_ests, F, G, P_est, P_est_prev)
+
+    return x_est, P_est, gain, r_mean_new, R, q_mean_new, Q
 
 def MRobust_step(z, x_est, P_est, F, H, G, Q, R, u=0):
     """
